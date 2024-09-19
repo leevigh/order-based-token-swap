@@ -2,18 +2,19 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract OrderSwap {
+contract OrderSwap is ReentrancyGuard {
     
     uint256 orderId;
 
     struct Order {
-        address tokenOffered;
-        uint256 amountOffered;
-        address tokenRequested;
-        uint256 amountRequested;
-        address depositor;
-        uint256 orderTime;
+        address tokenOffered; // token depositor is offering for requested
+        uint256 amountOffered; // amount depositor is giving for requested token
+        address tokenRequested; // token depositor wants for offer
+        uint256 amountRequested; // amount of the token the depositor wants
+        address depositor; // order creator
+        uint256 orderTime; // time when order was created
         bool fulfilled;
     }
 
@@ -26,6 +27,12 @@ contract OrderSwap {
         address tokenRequest, 
         uint256 amountRequest
     );
+    event OrderFulfilmentSuccessful(
+        address indexed purchaser,
+        uint256 indexed orderId,
+        address indexed tokenPurchased,
+        uint256 amountPurchased
+    );
 
     error AddressZeroDetected();
     error ZeroValueNotAllowed();
@@ -37,7 +44,7 @@ contract OrderSwap {
         uint256 _amountDeposit, 
         address _tokenRequest, 
         uint256 _amountRequest
-    ) external {
+    ) external nonReentrant {
             if(msg.sender == address(0)) {
                 revert AddressZeroDetected();
             }
@@ -78,36 +85,28 @@ contract OrderSwap {
         }
 
     
-    // Fulfilling an Order
-    // Purchaser Process:
-    // A purchaser finds an open order that they want to fulfill.
-    // The purchaser needs to transfer the required amount of the counter-token to the contract.
-    // The contract checks if the purchaser’s token amount matches the requested amount of the counter-token.
-    // If valid, the contract swaps the tokens:
-    // Transfer the depositor’s locked tokens to the purchaser.
-    // Transfer the purchaser’s tokens to the depositor.
-    // Once the order is fulfilled, mark it as closed or remove it from the list of open orders.
-    // Emit an event indicating the successful swap, including details of both parties.
-//     function fulfillOrder(uint256 _orderId, uint256 _fulfillAmount) external {
-//         require(_orderId > 0, "Invalid ID");
-//         if(_fulfillAmount <= 0) {
-//             revert ZeroValueNotAllowed();
-//         }
-// // address tokenOffered;
-// //         uint256 amountOffered;
-// //         address tokenRequested;
-// //         uint256 amountRequested;
-// //         address depositor;
-// //         uint256 orderTime;
-// //         bool fulfilled;
-//         Order storage order = orders[_orderId];
-//         require(!order.fulfilled, "Order fulfilled");
+    
+    function fulfillOrder(uint256 _orderId, uint256 _fulfillAmount) external nonReentrant {
+        require(_orderId > 0, "Invalid ID");
+        if(_fulfillAmount <= 0) {
+            revert ZeroValueNotAllowed();
+        }
 
-//         // transfer o
-//         IERC20(_tokenDeposit).transferFrom(msg.sender, address(this), _amountDeposit);
+        Order storage order = orders[_orderId];
+        require(!order.fulfilled, "Order fulfilled");
+        require(order.amountRequested == _fulfillAmount, "Invalid fulfilment amount");
+        
+        order.fulfilled = true;
 
+        // transfer requested token from order to the depositor
+        IERC20(order.tokenRequested).transferFrom(msg.sender, address(order.depositor), order.amountRequested);
 
+        // transfer offered token amount to purchaser
+        IERC20(order.tokenOffered).transfer(msg.sender, order.amountOffered);
 
+        emit OrderFulfilmentSuccessful(msg.sender, _orderId, order.tokenOffered, order.amountOffered);
 
-//     }
+    }
+
+    
 }
